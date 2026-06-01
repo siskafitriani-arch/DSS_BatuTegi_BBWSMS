@@ -5,58 +5,39 @@ import joblib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from tensorflow.keras.models import load_model
-from datetime import timedelta
-import os 
+from datetime import timedelta, datetime
+import os
 import io
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="DSS Waduk Batutegi", layout="wide")
+st.set_page_config(page_title="DSS Realtime Batutegi", layout="wide")
 
 # --- FUNGSI LOAD MODEL (CACHING) ---
-import gdown # Tambahkan 'gdown' ke requirements.txt
-
 @st.cache_resource
-def load_dss_resources():
+def load_model_resources():
+    """
+    Memuat model dan scaler sekali saja saat aplikasi dimulai.
+    Pastikan file .keras dan .pkl ada di folder yang sama dengan app.py
+    """
     try:
-        # Cek apakah file model ada di folder lokal (untuk pengembangan lokal)
-        if os.path.exists("model_lstm_batutegi.keras"):
-            model = load_model("model_lstm_batutegi.keras")
-            scaler_X = joblib.load("scaler_X.pkl")
-            scaler_y = joblib.load("scaler_y.pkl")
-            df_last = pd.read_excel("dataset_lstm_batutegi_ready.xlsx")
-        else:
-            # Jika di Streamlit Cloud dan file tidak ada, download dari Google Drive
-            import gdown
-            
-            # Ganti ID ini dengan ID file Google Drive Anda
-            model_id = "ID_MODEL_ANDA"
-            scaler_x_id = "ID_SCALER_X_ANDA"
-            scaler_y_id = "ID_SCALER_Y_ANDA"
-            
-            gdown.download(f"https://drive.google.com/uc?id={model_id}", "model_lstm_batutegi.keras", quiet=False)
-            gdown.download(f"https://drive.google.com/uc?id={scaler_x_id}", "scaler_X.pkl", quiet=False)
-            gdown.download(f"https://drive.google.com/uc?id={scaler_y_id}", "scaler_y.pkl", quiet=False)
-            
-            # Load setelah download
-            model = load_model("model_lstm_batutegi.keras")
-            scaler_X = joblib.load("scaler_X.pkl")
-            scaler_y = joblib.load("scaler_y.pkl")
-            
-            # Untuk dataset excel, lebih baik upload kecil atau buat dummy data jika terlalu besar
-            # Atau download juga via gdown jika sudah diupload ke Drive
-            df_last = pd.read_excel("dataset_lstm_batutegi_ready.xlsx") 
-            
-        return model, scaler_X, scaler_y, df_last
-        
+        model = load_model("model_lstm_batutegi.keras")
+        scaler_X = joblib.load("scaler_X.pkl")
+        scaler_y = joblib.load("scaler_y.pkl")
+        return model, scaler_X, scaler_y
     except Exception as e:
-        st.error(f"Gagal memuat resource: {e}")
+        st.error(f"❌ Gagal memuat model/scaler: {e}")
+        st.info("Pastikan file 'model_lstm_batutegi.keras', 'scaler_X.pkl', dan 'scaler_y.pkl' ada di folder proyek.")
         st.stop()
-        
-# --- LOGIKA PREDIKSI (SAMA SEPERTI SCRIPT ASLI) ---
-def prediksi_15_hari(df, model, scaler_X, scaler_y):
-    df_pred = df.copy()
-    hasil_prediksi = []
+
+# --- LOGIKA PREDIKSI 15 HARI (BERBASIS INPUT MANUAL) ---
+def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, scaler_y):
+    """
+    input_hari_ini: dict {'rainfall_1': val, 'rainfall_2': val} -> Data REALTIME hari ini
+    history_7_hari: list of dicts [{'rainfall_1': val, 'rainfall_2': val}, ...] 
+                    Urutan: [t-1, t-2, ..., t-7] (Kemarin sampai 7 hari lalu)
+    """
     
+    # Fitur yang dibutuhkan model (Harus sama persis urutan & namanya saat training)
     feature_cols = [
        "rainfall_1", "rainfall_2",
        "rainfall_1_lag_1", "rainfall_1_lag_2", "rainfall_1_lag_3",
@@ -66,57 +47,81 @@ def prediksi_15_hari(df, model, scaler_X, scaler_y):
        "bulan", "time_index"
     ]
     
-    last_date = pd.to_datetime(df_pred["tanggal"].iloc[-1])
+    hasil_prediksi = []
+    current_date = datetime.now() + timedelta(days=1) # Prediksi mulai dari BESOK
     
+    # Ambil nilai history untuk inisialisasi lag
+    # history_7_hari[0] adalah t-1 (kemarin), history_7_hari[6] adalah t-7
+    lags_1_init = [h['rainfall_1'] for h in history_7_hari]
+    lags_2_init = [h['rainfall_2'] for h in history_7_hari]
+    
+    # Virtual History untuk iterasi recursive
+    v_lags_1 = lags_1_init.copy()
+    v_lags_2 = lags_2_init.copy()
+    
+    # Nilai input saat ini (untuk step pertama, ini adalah data realtime hari ini)
+    curr_h1 = input_hari_ini['rainfall_1']
+    curr_h2 = input_hari_ini['rainfall_2']
+    
+    # Time index placeholder (jika model sangat sensitif terhadap time_index absolut, 
+    # sebaiknya disimpan di session state. Untuk sekarang kita pakai counter relatif)
+    base_time_index = 1000 
+
     for i in range(1, 16):
-        last_row = df_pred.iloc[-1].copy()
+        # Siapkan fitur input untuk langkah ke-i
+        # Lag 1 adalah data paling baru (untuk H+1, lag 1 adalah data Hari Ini)
+        # Lag 2 adalah data sebelum paling baru, dst.
         
-        X_input = last_row[feature_cols].values.reshape(1, -1)
-        X_scaled = scaler_X.transform(X_input)
+        row_data = [
+            curr_h1, curr_h2, # Nilai current (untuk H+1 ini adalah data hari ini)
+            v_lags_1[0], v_lags_1[1], v_lags_1[2], v_lags_1[3], v_lags_1[4], v_lags_1[5], v_lags_1[6],
+            v_lags_2[0], v_lags_2[1], v_lags_2[2], v_lags_2[3], v_lags_2[4], v_lags_2[5], v_lags_2[6],
+            current_date.month, base_time_index + i
+        ]
+        
+        df_input = pd.DataFrame([row_data], columns=feature_cols)
+        
+        # Scaling
+        X_scaled = scaler_X.transform(df_input)
         X_scaled = X_scaled.reshape((1, 1, X_scaled.shape[1]))
         
+        # Predict
         pred_scaled = model.predict(X_scaled, verbose=0)
-        pred = scaler_y.inverse_transform(pred_scaled)[0][0]
-        
-        # Curah hujan tidak boleh negatif
-        pred = max(pred, 0)
-        
-        next_date = last_date + timedelta(days=i)
+        pred_val = scaler_y.inverse_transform(pred_scaled)[0][0]
+        pred_val = max(pred_val, 0) # Tidak boleh negatif
         
         hasil_prediksi.append({
-            "tanggal": next_date,
+            "tanggal": current_date,
             "hari_ke": f"H+{i}",
-            "prediksi_hujan_lstm": pred
+            "prediksi_hujan_lstm": pred_val
         })
         
-        # Buat baris baru untuk iterasi berikutnya
-        new_row = last_row.copy()
-        new_row["tanggal"] = next_date
-        new_row["rainfall_1"] = pred
-        new_row["rainfall_2"] = last_row["rainfall_2"] 
-        new_row["bulan"] = next_date.month
-        new_row["time_index"] = last_row["time_index"] + 1
+        # --- UPDATE VIRTUAL HISTORY UNTUK ITERASI BERIKUTNYA ---
+        # Untuk prediksi H+2, maka 'curr_h1' harus menjadi prediksi H+1
+        # Dan history lag harus bergeser: prediksi H+1 masuk jadi lag_1
         
-        # Update lag rainfall_1
-        for lag in range(7, 1, -1):
-            new_row[f"rainfall_1_lag_{lag}"] = last_row[f"rainfall_1_lag_{lag-1}"]
-        new_row["rainfall_1_lag_1"] = pred
+        # Geser lag: buang yang paling lama (index 6), masukkan current ke index 0
+        v_lags_1.insert(0, curr_h1)
+        v_lags_1.pop()
         
-        # Update lag rainfall_2
-        for lag in range(7, 1, -1):
-            new_row[f"rainfall_2_lag_{lag}"] = last_row[f"rainfall_2_lag_{lag-1}"]
-        new_row["rainfall_2_lag_1"] = last_row["rainfall_2"]
+        v_lags_2.insert(0, curr_h2)
+        v_lags_2.pop()
         
-        df_pred = pd.concat([df_pred, pd.DataFrame([new_row])], ignore_index=True)
+        # Update current menjadi prediksi yang baru didapat (untuk loop berikutnya)
+        curr_h1 = pred_val
+        # Asumsi rainfall_2 statis atau punya pola lain, disini kita biarkan statis sesuai input awal
+        # atau bisa juga diprediksi jika punya model terpisah. Untuk sekarang tetap pakai input user.
+        
+        current_date += timedelta(days=1)
         
     return pd.DataFrame(hasil_prediksi)
 
-# --- LOGIKA DSS (SAMA SEPERTI SCRIPT ASLI) ---
+# --- LOGIKA DSS (NERACA AIR) ---
 def dss_irigasi_dan_pemeliharaan(df_prediksi, kapasitas_waduk_m3, volume_saat_ini_m3):
-    LUAS_DAERAH_TANGKAPAN_KM2 = 50
-    KOEFISIEN_ALIRAN_MASUK = 0.3
-    DEBIT_IRIGASI_RATA_RATA_M3_HARI = 5000
-    DEBIT_EVAPORASI_M3_HARI = 1000
+    LUAS_DAERAH_TANGKAPAN_KM2 = 50  # Sesuaikan dengan riil
+    KOEFISIEN_ALIRAN_MASUK = 0.3    
+    DEBIT_IRIGASI_RATA_RATA_M3_HARI = 5000 
+    DEBIT_EVAPORASI_M3_HARI = 1000  
     
     rekomendasi = []
     volume_air = volume_saat_ini_m3
@@ -125,37 +130,38 @@ def dss_irigasi_dan_pemeliharaan(df_prediksi, kapasitas_waduk_m3, volume_saat_in
         tanggal = row['tanggal']
         hujan_mm = row['prediksi_hujan_lstm']
         
+        # Hitung Neraca Air
         input_air_m3 = hujan_mm * (LUAS_DAERAH_TANGKAPAN_KM2 * 1_000_000) * KOEFISIEN_ALIRAN_MASUK / 1000
         output_air_m3 = DEBIT_IRIGASI_RATA_RATA_M3_HARI + DEBIT_EVAPORASI_M3_HARI
         
         volume_air = volume_air + input_air_m3 - output_air_m3
         
-        if volume_air > kapasitas_waduk_m3:
-            volume_air = kapasitas_waduk_m3
-        elif volume_air < 0:
-            volume_air = 0
+        # Batasan Fisik
+        if volume_air > kapasitas_waduk_m3: volume_air = kapasitas_waduk_m3
+        elif volume_air < 0: volume_air = 0
             
         persentase_kapasitas = (volume_air / kapasitas_waduk_m3) * 100
         
+        # Logika Status
         if persentase_kapasitas > 60:
             status_irigasi = "AMAN - Pasokan Penuh"
-            rekomendasi_irigasi = "Buka pintu air sesuai jadwal normal."
+            rek_irigasi = "Buka pintu air normal."
         elif persentase_kapasitas > 30:
             status_irigasi = "WASPADA - Hemat Air"
-            rekomendasi_irigasi = "Kurangi debit 20%. Prioritaskan tanaman kritis."
+            rek_irigasi = "Kurangi debit 20%."
         else:
             status_irigasi = "KRITIS - Darurat"
-            rekomendasi_irigasi = "Rotasi ketat. Hanya untuk tanaman masa generatif."
+            rek_irigasi = "Rotasi ketat."
             
         if hujan_mm > 20:
-            status_maintenance = "DITUNDA"
-            alasan_maintenance = "Curah hujan tinggi (>20mm). Risiko banjir & longsor."
+            status_maint = "DITUNDA"
+            alasan_maint = "Hujan tinggi (>20mm)."
         elif persentase_kapasitas < 20:
-            status_maintenance = "DITUNDA"
-            alasan_maintenance = "Status air kritis. Fokus pada distribusi air."
+            status_maint = "DITUNDA"
+            alasan_maint = "Air kritis."
         else:
-            status_maintenance = "DIREKOMENDASIKAN"
-            alasan_maintenance = "Cuaca mendukung & kondisi air aman."
+            status_maint = "DIREKOMENDASIKAN"
+            alasan_maint = "Cuaca & kondisi aman."
             
         rekomendasi.append({
             'tanggal': tanggal,
@@ -163,101 +169,108 @@ def dss_irigasi_dan_pemeliharaan(df_prediksi, kapasitas_waduk_m3, volume_saat_in
             'estimasi_volume_m3': round(volume_air, 2),
             'persentase_kapasitas': round(persentase_kapasitas, 2),
             'status_irigasi': status_irigasi,
-            'rekomendasi_irigasi': rekomendasi_irigasi,
-            'status_maintenance': status_maintenance,
-            'alasan_maintenance': alasan_maintenance
+            'rekomendasi_irigasi': rek_irigasi,
+            'status_maintenance': status_maint,
+            'alasan_maintenance': alasan_maint
         })
         
     return pd.DataFrame(rekomendasi)
 
 # --- UI STREAMLIT ---
-st.title("🌊 Dashboard DSS Waduk Batutegi")
-st.markdown("Sistem Pendukung Keputusan untuk Prediksi Hujan dan Manajemen Irigasi.")
+st.title("🌊 DSS Realtime Waduk Batutegi")
+st.markdown("Sistem pendukung keputusan berbasis data **Titik Tangkapan Air Lokal**.")
 
-# Sidebar untuk Input Parameter
+# SIDEBAR: INPUT DATA
+st.sidebar.header("📝 Input Data Curah Hujan")
+
+# 1. Data Realtime Hari Ini
+st.sidebar.subheader("Hari Ini (Realtime)")
+h1_today = st.sidebar.number_input("Curah Hujan Titik 1 (mm)", value=0.0, step=0.1, format="%.2f")
+h2_today = st.sidebar.number_input("Curah Hujan Titik 2 (mm)", value=0.0, step=0.1, format="%.2f")
+
+# 2. Data Historis (Untuk Inisialisasi Lag LSTM)
+st.sidebar.subheader("Data 7 Hari Terakhir (Historis)")
+st.sidebar.caption("Penting: Model LSTM butuh data masa lalu. Isi dengan data riil dari catatan Anda.")
+
+history_data = []
+for i in range(7):
+    st.sidebar.text(f"H-{i+1} (Hari ke-{i+1} lalu)")
+    col1, col2 = st.sidebar.columns(2)
+    h1_hist = col1.number_input(f"Titik 1", value=5.0, step=0.1, key=f"h1_hist_{i}")
+    h2_hist = col2.number_input(f"Titik 2", value=5.0, step=0.1, key=f"h2_hist_{i}")
+    # Masukkan ke list (urutan: t-1, t-2, ... t-7)
+    history_data.append({'rainfall_1': h1_hist, 'rainfall_2': h2_hist})
+
+# Parameter Waduk
 st.sidebar.header("⚙️ Parameter Operasional")
-kapasitas_waduk = st.sidebar.number_input("Kapasitas Waduk (m³)", value=1000000, step=10000)
+kapasitas_waduk = st.sidebar.number_input("Kapasitas Total (m³)", value=1000000, step=10000)
 volume_awal = st.sidebar.number_input("Volume Air Saat Ini (m³)", value=600000, step=10000)
 
-# Tombol Trigger Prediksi
-if st.button("🔄 Jalankan Prediksi & Analisis DSS"):
-    with st.spinner('Memuat model dan menghitung prediksi...'):
-        # Load resources
-        model, scaler_X, scaler_y, df_last = load_dss_resources()
+# TOMBOL PROSES
+if st.button("🚀 Jalankan Prediksi & Analisis DSS"):
+    with st.spinner('Menghitung prediksi berbasis input lokal...'):
+        # Load Model
+        model, scaler_X, scaler_y = load_model_resources()
         
-        # 1. Jalankan Prediksi
-        hasil_15hari = prediksi_15_hari(df_last, model, scaler_X, scaler_y)
+        # Siapkan Input
+        input_realtime = {'rainfall_1': h1_today, 'rainfall_2': h2_today}
         
-        # 2. Jalankan DSS
-        df_dss = dss_irigasi_dan_pemeliharaan(hasil_15hari, kapasitas_waduk, volume_awal)
+        # 1. Prediksi
+        df_prediksi = prediksi_15_hari_manual(input_realtime, history_data, model, scaler_X, scaler_y)
         
-        # --- TAMPILAN HASIL ---
+        # 2. DSS
+        df_dss = dss_irigasi_dan_pemeliharaan(df_prediksi, kapasitas_waduk, volume_awal)
         
-        # Kolom Metrik Utama (Hari Ini/Besok)
+        # --- TAMPILAN DASHBOARD ---
+        
+        # Metrik Utama
         col1, col2, col3 = st.columns(3)
-        hari_ini = df_dss.iloc[0]
+        besok = df_dss.iloc[0]
         
-        col1.metric("Prediksi Hujan Besok", f"{hari_ini['prediksi_hujan_mm']:.2f} mm")
-        col2.metric("Estimasi Volume Akhir", f"{hari_ini['estimasi_volume_m3']:,.0f} m³")
-        col3.metric("Status Irigasi", hari_ini['status_irigasi'])
-
-        # Grafik Interaktif dengan Plotly
+        col1.metric("Prediksi Hujan Besok", f"{besok['prediksi_hujan_mm']:.2f} mm")
+        col2.metric("Estimasi Volume Besok", f"{besok['estimasi_volume_m3']:,.0f} m³")
+        col3.metric("Status Irigasi", besok['status_irigasi'])
+        
+        # Grafik Interaktif
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Bar Chart untuk Hujan
         fig.add_trace(
             go.Bar(x=df_dss['tanggal'], y=df_dss['prediksi_hujan_mm'], name="Curah Hujan (mm)", marker_color='royalblue'),
             secondary_y=False
         )
         
-        # Line Chart untuk Volume %
         fig.add_trace(
-            go.Scatter(x=df_dss['tanggal'], y=df_dss['persentase_kapasitas'], name="% Kapasitas Waduk", line=dict(color='red', width=3)),
+            go.Scatter(x=df_dss['tanggal'], y=df_dss['persentase_kapasitas'], name="% Kapasitas", line=dict(color='red', width=3)),
             secondary_y=True
         )
         
-        # Garis Batas
-        fig.add_hline(y=60, line_dash="dash", line_color="green", annotation_text="Batas Aman (60%)", secondary_y=True)
-        fig.add_hline(y=30, line_dash="dash", line_color="orange", annotation_text="Batas Waspada (30%)", secondary_y=True)
+        fig.add_hline(y=60, line_dash="dash", line_color="green", annotation_text="Batas Aman", secondary_y=True)
+        fig.add_hline(y=30, line_dash="dash", line_color="orange", annotation_text="Batas Waspada", secondary_y=True)
         
-        fig.update_layout(
-            title_text="Prediksi Hujan vs Proyeksi Volume Waduk (15 Hari)",
-            xaxis_title="Tanggal",
-            hovermode="x unified"
-        )
-        fig.update_yaxes(title_text="Curah Hujan (mm)", secondary_y=False)
-        fig.update_yaxes(title_text="Kapasitas Waduk (%)", secondary_y=True)
-        
+        fig.update_layout(title_text="Proyeksi 15 Hari: Hujan vs Volume Waduk", hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
         
-        # Tabel Rekomendasi Detail
+        # Tabel Rekomendasi
         st.subheader("📋 Tabel Rekomendasi Operasional")
-        
-        # Format tampilan tabel agar lebih bersih
-        df_tampilan = df_dss[['tanggal', 'prediksi_hujan_mm', 'status_irigasi', 'rekomendasi_irigasi', 'status_maintenance', 'alasan_maintenance']]
-        df_tampilan.columns = ['Tanggal', 'Hujan (mm)', 'Status Irigasi', 'Rekomendasi Irigasi', 'Status Maintenance', 'Alasan']
-        
-        # Fungsi untuk mewarnai baris berdasarkan status (opsional, sederhana saja)
+        df_tampilan = df_dss[['tanggal', 'prediksi_hujan_mm', 'status_irigasi', 'status_maintenance', 'alasan_maintenance']]
+        df_tampilan.columns = ['Tanggal', 'Hujan (mm)', 'Status Irigasi', 'Maintenance', 'Alasan']
         st.dataframe(df_tampilan, use_container_width=True)
         
-        # Tombol Download Excel
+        # Download Excel
         @st.cache_data
         def convert_df_to_excel(df):
-            # Menggunakan BytesIO untuk menyimpan file di memori
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Rekomendasi DSS')
-            # Dapatkan nilai bytes dari buffer
-            processed_data = output.getvalue()
-            return processed_data
+                df.to_excel(writer, index=False, sheet_name='DSS_Result')
+            return output.getvalue()
             
         excel_data = convert_df_to_excel(df_dss)
-        
         st.download_button(
-            label=" Download Hasil DSS (.xlsx)",
+            label="📥 Download Hasil (.xlsx)",
             data=excel_data,
-            file_name='rekomendasi_dss_batutegi.xlsx',
+            file_name=f'DSS_Batutegi_{datetime.now().strftime("%Y%m%d")}.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
 else:
-    st.info("👈 Silakan klik tombol **'Jalankan Prediksi & Analisis DSS'** di atas untuk melihat hasil.")
+    st.info("👈 Silakan isi data curah hujan dari titik tangkapan air Anda di sidebar, lalu klik tombol **Jalankan Prediksi**.")
