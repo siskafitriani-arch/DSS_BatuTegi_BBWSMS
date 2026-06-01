@@ -241,7 +241,7 @@ if st.button("🔄 Jalankan Prediksi & Analisis DSS"):
         st.dataframe(df_tampilan, use_container_width=True)
         
         # Tombol Download Excel
-                @st.cache_data
+        @st.cache_data
         def convert_df_to_excel(df):
             # Menggunakan BytesIO untuk menyimpan file di memori
             output = io.BytesIO()
