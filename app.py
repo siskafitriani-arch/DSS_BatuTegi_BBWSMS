@@ -16,33 +16,40 @@ import gdown # Tambahkan 'gdown' ke requirements.txt
 @st.cache_resource
 def load_dss_resources():
     try:
-        # ID File Google Drive (Ganti dengan ID file model Anda yang sudah di-set 'Anyone with link can view')
-        model_id = "ID_FILE_MODEL_ANDA_DISINI" 
-        scaler_x_id = "ID_FILE_SCALER_X_ANDA"
-        scaler_y_id = "ID_FILE_SCALER_Y_ANDA"
-        
-        # Download jika belum ada di cache folder
-        if not os.path.exists("model_lstm_batutegi.keras"):
+        # Cek apakah file model ada di folder lokal (untuk pengembangan lokal)
+        if os.path.exists("model_lstm_batutegi.keras"):
+            model = load_model("model_lstm_batutegi.keras")
+            scaler_X = joblib.load("scaler_X.pkl")
+            scaler_y = joblib.load("scaler_y.pkl")
+            df_last = pd.read_excel("dataset_lstm_batutegi_ready.xlsx")
+        else:
+            # Jika di Streamlit Cloud dan file tidak ada, download dari Google Drive
+            import gdown
+            
+            # Ganti ID ini dengan ID file Google Drive Anda
+            model_id = "ID_MODEL_ANDA"
+            scaler_x_id = "ID_SCALER_X_ANDA"
+            scaler_y_id = "ID_SCALER_Y_ANDA"
+            
             gdown.download(f"https://drive.google.com/uc?id={model_id}", "model_lstm_batutegi.keras", quiet=False)
-            
-        if not os.path.exists("scaler_X.pkl"):
             gdown.download(f"https://drive.google.com/uc?id={scaler_x_id}", "scaler_X.pkl", quiet=False)
-            
-        if not os.path.exists("scaler_y.pkl"):
             gdown.download(f"https://drive.google.com/uc?id={scaler_y_id}", "scaler_y.pkl", quiet=False)
-
-        model = load_model("model_lstm_batutegi.keras")
-        scaler_X = joblib.load("scaler_X.pkl")
-        scaler_y = joblib.load("scaler_y.pkl")
-        
-        # Load data terakhir (bisa juga dari Google Drive atau hardcoded kecil)
-        df_last = pd.read_excel("dataset_lstm_batutegi_ready.xlsx")
-        
+            
+            # Load setelah download
+            model = load_model("model_lstm_batutegi.keras")
+            scaler_X = joblib.load("scaler_X.pkl")
+            scaler_y = joblib.load("scaler_y.pkl")
+            
+            # Untuk dataset excel, lebih baik upload kecil atau buat dummy data jika terlalu besar
+            # Atau download juga via gdown jika sudah diupload ke Drive
+            df_last = pd.read_excel("dataset_lstm_batutegi_ready.xlsx") 
+            
         return model, scaler_X, scaler_y, df_last
+        
     except Exception as e:
         st.error(f"Gagal memuat resource: {e}")
         st.stop()
-
+        
 # --- LOGIKA PREDIKSI (SAMA SEPERTI SCRIPT ASLI) ---
 def prediksi_15_hari(df, model, scaler_X, scaler_y):
     df_pred = df.copy()
