@@ -7,6 +7,8 @@ from plotly.subplots import make_subplots
 from tensorflow.keras.models import load_model
 from datetime import timedelta
 import os 
+import io
+
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="DSS Waduk Batutegi", layout="wide")
 
@@ -239,17 +241,23 @@ if st.button("🔄 Jalankan Prediksi & Analisis DSS"):
         st.dataframe(df_tampilan, use_container_width=True)
         
         # Tombol Download Excel
-        @st.cache_data
+                @st.cache_data
         def convert_df_to_excel(df):
-            return df.to_excel(index=False)
+            # Menggunakan BytesIO untuk menyimpan file di memori
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Rekomendasi DSS')
+            # Dapatkan nilai bytes dari buffer
+            processed_data = output.getvalue()
+            return processed_data
             
         excel_data = convert_df_to_excel(df_dss)
+        
         st.download_button(
-            label="📥 Download Hasil DSS (.xlsx)",
+            label=" Download Hasil DSS (.xlsx)",
             data=excel_data,
             file_name='rekomendasi_dss_batutegi.xlsx',
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-
 else:
     st.info("👈 Silakan klik tombol **'Jalankan Prediksi & Analisis DSS'** di atas untuk melihat hasil.")
