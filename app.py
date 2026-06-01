@@ -11,20 +11,36 @@ from datetime import timedelta
 st.set_page_config(page_title="DSS Waduk Batutegi", layout="wide")
 
 # --- FUNGSI LOAD MODEL (CACHING) ---
+import gdown # Tambahkan 'gdown' ke requirements.txt
+
 @st.cache_resource
 def load_dss_resources():
-    """
-    Memuat model dan scaler sekali saja saat aplikasi dimulai.
-    Menggunakan cache agar tidak reload setiap kali user berinteraksi.
-    """
     try:
+        # ID File Google Drive (Ganti dengan ID file model Anda yang sudah di-set 'Anyone with link can view')
+        model_id = "ID_FILE_MODEL_ANDA_DISINI" 
+        scaler_x_id = "ID_FILE_SCALER_X_ANDA"
+        scaler_y_id = "ID_FILE_SCALER_Y_ANDA"
+        
+        # Download jika belum ada di cache folder
+        if not os.path.exists("model_lstm_batutegi.keras"):
+            gdown.download(f"https://drive.google.com/uc?id={model_id}", "model_lstm_batutegi.keras", quiet=False)
+            
+        if not os.path.exists("scaler_X.pkl"):
+            gdown.download(f"https://drive.google.com/uc?id={scaler_x_id}", "scaler_X.pkl", quiet=False)
+            
+        if not os.path.exists("scaler_y.pkl"):
+            gdown.download(f"https://drive.google.com/uc?id={scaler_y_id}", "scaler_y.pkl", quiet=False)
+
         model = load_model("model_lstm_batutegi.keras")
         scaler_X = joblib.load("scaler_X.pkl")
         scaler_y = joblib.load("scaler_y.pkl")
+        
+        # Load data terakhir (bisa juga dari Google Drive atau hardcoded kecil)
         df_last = pd.read_excel("dataset_lstm_batutegi_ready.xlsx")
+        
         return model, scaler_X, scaler_y, df_last
     except Exception as e:
-        st.error(f"Gagal memuat file model/data: {e}")
+        st.error(f"Gagal memuat resource: {e}")
         st.stop()
 
 # --- LOGIKA PREDIKSI (SAMA SEPERTI SCRIPT ASLI) ---
