@@ -1,11 +1,9 @@
 streamlit
 pandas
 numpy
-matplotlib
-plotly
 tensorflow-cpu
-scikit-learn
 joblib
+scikit-learn
 openpyxl
-xlrd
+plotly
 gdown
