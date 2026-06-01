@@ -56,11 +56,11 @@ def prediksi_15_hari(df, model, scaler_X, scaler_y):
     hasil_prediksi = []
     
     feature_cols = [
-       "pos_hujan_1", "pos_hujan_2",
-       "pos_hujan_1_lag_1", "pos_hujan_1_lag_2", "pos_hujan_1_lag_3",
-       "pos_hujan_1_lag_4", "pos_hujan_1_lag_5", "pos_hujan_1_lag_6", "pos_hujan_1_lag_7",
-       "pos_hujan_2_lag_1", "pos_hujan_2_lag_2", "pos_hujan_2_lag_3",
-       "pos_hujan_2_lag_4", "pos_hujan_2_lag_5", "pos_hujan_2_lag_6", "pos_hujan_2_lag_7",
+       "rainfall_1", "rainfall_2",
+       "rainfall_1_lag_1", "rainfall_1_lag_2", "rainfall_1_lag_3",
+       "rainfall_1_lag_4", "rainfall_1_lag_5", "rainfall_1_lag_6", "rainfall_1_lag_7",
+       "rainfall_2_lag_1", "rainfall_2_lag_2", "rainfall_2_lag_3",
+       "rainfall_2_lag_4", "rainfall_2_lag_5", "rainfall_2_lag_6", "rainfall_2_lag_7",
        "bulan", "time_index"
     ]
     
@@ -90,20 +90,20 @@ def prediksi_15_hari(df, model, scaler_X, scaler_y):
         # Buat baris baru untuk iterasi berikutnya
         new_row = last_row.copy()
         new_row["tanggal"] = next_date
-        new_row["pos_hujan_1"] = pred
-        new_row["pos_hujan_2"] = last_row["pos_hujan_2"] 
+        new_row["rainfall_1"] = pred
+        new_row["rainfall_2"] = last_row["rainfall_2"] 
         new_row["bulan"] = next_date.month
         new_row["time_index"] = last_row["time_index"] + 1
         
         # Update lag rainfall_1
         for lag in range(7, 1, -1):
-            new_row[f"pos_hujan_1_lag_{lag}"] = last_row[f"pos_hujan_1_lag_{lag-1}"]
-        new_row["pos_hujan_1_lag_1"] = pred
+            new_row[f"rainfall_1_lag_{lag}"] = last_row[f"rainfall_1_lag_{lag-1}"]
+        new_row["rainfall_1_lag_1"] = pred
         
         # Update lag rainfall_2
         for lag in range(7, 1, -1):
-            new_row[f"pos_hujan_2_lag_{lag}"] = last_row[f"pos_hujan_2_lag_{lag-1}"]
-        new_row["pos_hujan_2_lag_1"] = last_row["pos_hujan_2"]
+            new_row[f"rainfall_2_lag_{lag}"] = last_row[f"rainfall_2_lag_{lag-1}"]
+        new_row["rainfall_2_lag_1"] = last_row["rainfall_2"]
         
         df_pred = pd.concat([df_pred, pd.DataFrame([new_row])], ignore_index=True)
         
