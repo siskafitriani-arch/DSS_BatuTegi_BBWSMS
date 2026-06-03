@@ -20,13 +20,13 @@ def load_model_resources():
     """
     Memuat model, scaler, dan history training.
     """
-try:
-# Load model
-model = keras.models.load_model('model_lstm_batutegi.keras')
+    try:
+    # Load model
+    model = keras.models.load_model('model_lstm_batutegi.keras')
 
-# Load scaler (jika pakai pickle)
-import pickle
-with open('scaler_X.pkl', 'rb') as f:
+    # Load scaler (jika pakai pickle)
+    import pickle
+    with open('scaler_X.pkl', 'rb') as f:
     scaler_X = pickle.load(f)
         
         # Load History Training (Opsional)
