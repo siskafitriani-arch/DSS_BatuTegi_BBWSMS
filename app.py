@@ -8,25 +8,33 @@ from tensorflow.keras.models import load_model
 from datetime import timedelta, datetime
 import os
 import io
+import json
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="DSS Realtime Batutegi", layout="wide")
 
-# --- FUNGSI LOAD MODEL (CACHING) ---
+# --- FUNGSI LOAD MODEL & HISTORY (CACHING) ---
 @st.cache_resource
 def load_model_resources():
     """
-    Memuat model dan scaler sekali saja saat aplikasi dimulai.
-    Pastikan file .keras dan .pkl ada di folder yang sama dengan app.py
+    Memuat model, scaler, dan history training.
     """
     try:
+        # Load Model & Scaler
         model = load_model("model_lstm_batutegi.keras")
         scaler_X = joblib.load("scaler_X.pkl")
         scaler_y = joblib.load("scaler_y.pkl")
-        return model, scaler_X, scaler_y
+        
+        # Load History Training (Opsional)
+        history_data = None
+        if os.path.exists("history_training.json"):
+            with open("history_training.json", "r") as f:
+                history_data = json.load(f)
+                
+        return model, scaler_X, scaler_y, history_data
     except Exception as e:
-        st.error(f"❌ Gagal memuat model/scaler: {e}")
-        st.info("Pastikan file 'model_lstm_batutegi.keras', 'scaler_X.pkl', dan 'scaler_y.pkl' ada di folder proyek.")
+        st.error(f"❌ Gagal memuat resource: {e}")
+        st.info("Pastikan file 'model_lstm_batutegi.keras', 'scaler_X.pkl', 'scaler_y.pkl', dan opsional 'history_training.json' ada di folder proyek.")
         st.stop()
 
 # --- LOGIKA PREDIKSI 15 HARI (BERBASIS INPUT MANUAL) ---
@@ -51,7 +59,6 @@ def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, sca
     current_date = datetime.now() + timedelta(days=1) # Prediksi mulai dari BESOK
     
     # Ambil nilai history untuk inisialisasi lag
-    # history_7_hari[0] adalah t-1 (kemarin), history_7_hari[6] adalah t-7
     lags_1_init = [h['rainfall_1'] for h in history_7_hari]
     lags_2_init = [h['rainfall_2'] for h in history_7_hari]
     
@@ -59,21 +66,16 @@ def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, sca
     v_lags_1 = lags_1_init.copy()
     v_lags_2 = lags_2_init.copy()
     
-    # Nilai input saat ini (untuk step pertama, ini adalah data realtime hari ini)
+    # Nilai input saat ini
     curr_h1 = input_hari_ini['rainfall_1']
     curr_h2 = input_hari_ini['rainfall_2']
     
-    # Time index placeholder (jika model sangat sensitif terhadap time_index absolut, 
-    # sebaiknya disimpan di session state. Untuk sekarang kita pakai counter relatif)
+    # Time index placeholder
     base_time_index = 1000 
 
     for i in range(1, 16):
-        # Siapkan fitur input untuk langkah ke-i
-        # Lag 1 adalah data paling baru (untuk H+1, lag 1 adalah data Hari Ini)
-        # Lag 2 adalah data sebelum paling baru, dst.
-        
         row_data = [
-            curr_h1, curr_h2, # Nilai current (untuk H+1 ini adalah data hari ini)
+            curr_h1, curr_h2, 
             v_lags_1[0], v_lags_1[1], v_lags_1[2], v_lags_1[3], v_lags_1[4], v_lags_1[5], v_lags_1[6],
             v_lags_2[0], v_lags_2[1], v_lags_2[2], v_lags_2[3], v_lags_2[4], v_lags_2[5], v_lags_2[6],
             current_date.month, base_time_index + i
@@ -88,7 +90,7 @@ def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, sca
         # Predict
         pred_scaled = model.predict(X_scaled, verbose=0)
         pred_val = scaler_y.inverse_transform(pred_scaled)[0][0]
-        pred_val = max(pred_val, 0) # Tidak boleh negatif
+        pred_val = max(pred_val, 0) 
         
         hasil_prediksi.append({
             "tanggal": current_date,
@@ -96,21 +98,14 @@ def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, sca
             "prediksi_hujan_lstm": pred_val
         })
         
-        # --- UPDATE VIRTUAL HISTORY UNTUK ITERASI BERIKUTNYA ---
-        # Untuk prediksi H+2, maka 'curr_h1' harus menjadi prediksi H+1
-        # Dan history lag harus bergeser: prediksi H+1 masuk jadi lag_1
-        
-        # Geser lag: buang yang paling lama (index 6), masukkan current ke index 0
+        # Update Virtual History
         v_lags_1.insert(0, curr_h1)
         v_lags_1.pop()
         
         v_lags_2.insert(0, curr_h2)
         v_lags_2.pop()
         
-        # Update current menjadi prediksi yang baru didapat (untuk loop berikutnya)
         curr_h1 = pred_val
-        # Asumsi rainfall_2 statis atau punya pola lain, disini kita biarkan statis sesuai input awal
-        # atau bisa juga diprediksi jika punya model terpisah. Untuk sekarang tetap pakai input user.
         
         current_date += timedelta(days=1)
         
@@ -118,7 +113,7 @@ def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, sca
 
 # --- LOGIKA DSS (NERACA AIR) ---
 def dss_irigasi_dan_pemeliharaan(df_prediksi, kapasitas_waduk_m3, volume_saat_ini_m3):
-    LUAS_DAERAH_TANGKAPAN_KM2 = 50  # Sesuaikan dengan riil
+    LUAS_DAERAH_TANGKAPAN_KM2 = 50  
     KOEFISIEN_ALIRAN_MASUK = 0.3    
     DEBIT_IRIGASI_RATA_RATA_M3_HARI = 5000 
     DEBIT_EVAPORASI_M3_HARI = 1000  
@@ -188,9 +183,9 @@ st.sidebar.subheader("Hari Ini (Realtime)")
 h1_today = st.sidebar.number_input("Curah Hujan Titik 1 (mm)", value=0.0, step=0.1, format="%.2f")
 h2_today = st.sidebar.number_input("Curah Hujan Titik 2 (mm)", value=0.0, step=0.1, format="%.2f")
 
-# 2. Data Historis (Untuk Inisialisasi Lag LSTM)
+# 2. Data Historis
 st.sidebar.subheader("Data 7 Hari Terakhir (Historis)")
-st.sidebar.caption("Penting: Model LSTM butuh data masa lalu. Isi dengan data riil dari catatan Anda.")
+st.sidebar.caption("Model LSTM butuh data masa lalu. Isi dengan data riil.")
 
 history_data = []
 for i in range(7):
@@ -198,7 +193,6 @@ for i in range(7):
     col1, col2 = st.sidebar.columns(2)
     h1_hist = col1.number_input(f"Titik 1", value=5.0, step=0.1, key=f"h1_hist_{i}")
     h2_hist = col2.number_input(f"Titik 2", value=5.0, step=0.1, key=f"h2_hist_{i}")
-    # Masukkan ke list (urutan: t-1, t-2, ... t-7)
     history_data.append({'rainfall_1': h1_hist, 'rainfall_2': h2_hist})
 
 # Parameter Waduk
@@ -209,8 +203,8 @@ volume_awal = st.sidebar.number_input("Volume Air Saat Ini (m³)", value=600000,
 # TOMBOL PROSES
 if st.button("🚀 Jalankan Prediksi & Analisis DSS"):
     with st.spinner('Menghitung prediksi berbasis input lokal...'):
-        # Load Model
-        model, scaler_X, scaler_y = load_model_resources()
+        # Load Model & History
+        model, scaler_X, scaler_y, train_history = load_model_resources()
         
         # Siapkan Input
         input_realtime = {'rainfall_1': h1_today, 'rainfall_2': h2_today}
@@ -231,24 +225,65 @@ if st.button("🚀 Jalankan Prediksi & Analisis DSS"):
         col2.metric("Estimasi Volume Besok", f"{besok['estimasi_volume_m3']:,.0f} m³")
         col3.metric("Status Irigasi", besok['status_irigasi'])
         
-        # Grafik Interaktif
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        # Grafik 1: Proyeksi Hujan vs Volume
+        st.subheader("📈 Proyeksi 15 Hari Kedepan")
+        fig_proj = make_subplots(specs=[[{"secondary_y": True}]])
         
-        fig.add_trace(
+        fig_proj.add_trace(
             go.Bar(x=df_dss['tanggal'], y=df_dss['prediksi_hujan_mm'], name="Curah Hujan (mm)", marker_color='royalblue'),
             secondary_y=False
         )
         
-        fig.add_trace(
+        fig_proj.add_trace(
             go.Scatter(x=df_dss['tanggal'], y=df_dss['persentase_kapasitas'], name="% Kapasitas", line=dict(color='red', width=3)),
             secondary_y=True
         )
         
-        fig.add_hline(y=60, line_dash="dash", line_color="green", annotation_text="Batas Aman", secondary_y=True)
-        fig.add_hline(y=30, line_dash="dash", line_color="orange", annotation_text="Batas Waspada", secondary_y=True)
+        fig_proj.add_hline(y=60, line_dash="dash", line_color="green", annotation_text="Batas Aman", secondary_y=True)
+        fig_proj.add_hline(y=30, line_dash="dash", line_color="orange", annotation_text="Batas Waspada", secondary_y=True)
         
-        fig.update_layout(title_text="Proyeksi 15 Hari: Hujan vs Volume Waduk", hovermode="x unified")
-        st.plotly_chart(fig, use_container_width=True)
+        fig_proj.update_layout(title_text="Proyeksi: Hujan vs Volume Waduk", hovermode="x unified")
+        st.plotly_chart(fig_proj, use_container_width=True)
+
+        # Grafik 2: Training Loss (Jika data tersedia)
+        if train_history:
+            st.subheader("📉 Performa Model (Training History)")
+            st.caption("Grafik ini menunjukkan bagaimana model belajar mengurangi error selama pelatihan.")
+            
+            epochs = range(1, len(train_history['loss']) + 1)
+            
+            fig_loss = go.Figure()
+            
+            # Training Loss
+            fig_loss.add_trace(go.Scatter(
+                x=list(epochs), 
+                y=train_history['loss'], 
+                mode='lines+markers', 
+                name='Training Loss',
+                line=dict(color='blue', width=2)
+            ))
+            
+            # Validation Loss (jika ada)
+            if 'val_loss' in train_history:
+                fig_loss.add_trace(go.Scatter(
+                    x=list(epochs), 
+                    y=train_history['val_loss'], 
+                    mode='lines+markers', 
+                    name='Validation Loss',
+                    line=dict(color='red', width=2, dash='dot')
+                ))
+                
+            fig_loss.update_layout(
+                title="Evolution of Loss During Training",
+                xaxis_title="Epoch",
+                yaxis_title="Loss (MSE/MAE)",
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_loss, use_container_width=True)
+        else:
+            st.warning("⚠️ File `history_training.json` tidak ditemukan. Grafik performa model tidak dapat ditampilkan.")
+            st.info("Tips: Simpan history training saat fitting model menggunakan `json.dump(history.history, file)` untuk melihat grafik ini.")
         
         # Tabel Rekomendasi
         st.subheader("📋 Tabel Rekomendasi Operasional")
