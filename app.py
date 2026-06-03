@@ -19,7 +19,7 @@ def load_model_resources():
     """
     Memuat model, scaler, dan history training.
     """
-    try:
+
 import tensorflow as tf
 from tensorflow import keras # Ini akan merujuk ke Keras 2 jika pakai TF 2.15
 
