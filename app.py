@@ -172,7 +172,7 @@ def dss_irigasi_dan_pemeliharaan(df_prediksi, kapasitas_waduk_m3, volume_saat_in
     return pd.DataFrame(rekomendasi)
 
 # --- UI STREAMLIT ---
-st.title("🌊 DSS Realtime Waduk Batutegi")
+st.title("🌊 DSS Realtime Bendungan Batutegi")
 st.markdown("Sistem pendukung keputusan berbasis data **Titik Tangkapan Air Lokal**.")
 
 # SIDEBAR: INPUT DATA
