@@ -20,26 +20,30 @@ def load_model_resources():
     """
     Memuat model, scaler, dan history training.
     """
-try:
-    model = keras.models.load_model('model_lstm_batutegi.keras')
+    try:
+        # 1. Load Model
+        model = keras.models.load_model('model_lstm_batutegi.keras')
 
-    # Load scaler (jika pakai pickle)
-    import pickle
-    with open('scaler_X.pkl', 'rb') as f:
-        scaler_X = pickle.load(f)
+        # 2. Load Scaler X
+        with open('scaler_X.pkl', 'rb') as f:
+            scaler_X = pickle.load(f)
         
-        # Load History Training (Opsional)
+        # 3. Load Scaler Y (PENTING: Ini sebelumnya hilang/tidak di-load)
+        with open('scaler_y.pkl', 'rb') as f:
+            scaler_y = pickle.load(f)
+        
+        # 4. Load History Training (Opsional)
         history_data = None
         if os.path.exists("history_training.json"):
             with open("history_training.json", "r") as f:
                 history_data = json.load(f)
                 
         return model, scaler_X, scaler_y, history_data
+
     except Exception as e:
         st.error(f"❌ Gagal memuat resource: {e}")
         st.info("Pastikan file 'model_lstm_batutegi.keras', 'scaler_X.pkl', 'scaler_y.pkl', dan opsional 'history_training.json' ada di folder proyek.")
         st.stop()
-
 # --- LOGIKA PREDIKSI 15 HARI (BERBASIS INPUT MANUAL) ---
 def prediksi_15_hari_manual(input_hari_ini, history_7_hari, model, scaler_X, scaler_y):
     """
