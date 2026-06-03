@@ -1,20 +1,37 @@
 import json
+import streamlit as st
+import matplotlib.pyplot as plt
+import pandas as pd
 
-# 1. Jalankan Training
-history = model.fit(
-    X_train,
-    y_train,
-    epochs=100,
-    batch_size=32,
-    validation_data=(X_test, y_test),
-    verbose=1
-)
+st.subheader("📈 Riwayat Training Model")
 
-# 2. SIMPAN HASILNYA KE FILE (Wajib dilakukan agar bisa dibaca Streamlit)
-with open('history_training.json', 'w') as f:
-    json.dump(history.history, f)
-
-print("✅ History training berhasil disimpan ke 'history_training.json'")
-print(f"Total Epoch yang dijalankan: {len(history.history['loss'])}")
-print(f"Loss Akhir Training: {history.history['loss'][-1]:.6f}")
-print(f"Loss Akhir Validasi: {history.history['val_loss'][-1]:.6f}")
+try:
+    # Load data dari file JSON
+    with open('history_training.json', 'r') as f:
+        data = json.load(f)
+    
+    train_loss = data['loss']
+    val_loss = data['val_loss']
+    epochs = range(1, len(train_loss) + 1)
+    
+    df_loss = pd.DataFrame({
+        'Epoch': list(epochs),
+        'Training Loss': train_loss,
+        'Validation Loss': val_loss
+    })
+    
+    fig, ax = plt.subplots()
+    ax.plot(df_loss['Epoch'], df_loss['Training Loss'], 'b-o', label='Training Loss')
+    ax.plot(df_loss['Epoch'], df_loss['Validation Loss'], 'r-o', label='Validation Loss')
+    ax.set_title('Training vs Validation Loss')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.legend()
+    ax.grid(True)
+    
+    st.pyplot(fig)
+    
+except FileNotFoundError:
+    st.warning("File history_training.json tidak ditemukan. Lakukan training terlebih dahulu.")
+except Exception as e:
+    st.error(f"Gagal memuat data history: {e}")
