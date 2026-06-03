@@ -3,7 +3,9 @@ pandas==2.1.4
 numpy==1.26.2
 scikit-learn==1.3.2
 matplotlib==3.8.2
-# Jika pakai TensorFlow/Keras, pastikan versinya kompatibel dengan Python 3.9/3.10 di Streamlit
+
+# PENTING: Gunakan TensorFlow versi 2.15.x yang masih menggunakan Keras 2 secara native
+# Jangan install 'keras' package terpisah jika pakai tensorflow<=2.15
 tensorflow==2.15.0
 
 openpyxl
