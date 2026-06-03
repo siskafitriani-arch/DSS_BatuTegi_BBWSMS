@@ -20,10 +20,16 @@ def load_model_resources():
     Memuat model, scaler, dan history training.
     """
     try:
-        # Load Model & Scaler
-        model = load_model("model_lstm_batutegi.keras")
-        scaler_X = joblib.load("scaler_X.pkl")
-        scaler_y = joblib.load("scaler_y.pkl")
+import tensorflow as tf
+from tensorflow import keras # Ini akan merujuk ke Keras 2 jika pakai TF 2.15
+
+# Load model
+model = keras.models.load_model('model_lstm_batutegi.keras')
+
+# Load scaler (jika pakai pickle)
+import pickle
+with open('scaler_X.pkl', 'rb') as f:
+    scaler_X = pickle.load(f)
         
         # Load History Training (Opsional)
         history_data = None
