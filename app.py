@@ -20,10 +20,12 @@ def load_model_resources():
     """
     Memuat model, scaler, dan history training.
     """
-    try:
-    # Load model
+try:
     model = keras.models.load_model('model_lstm_batutegi.keras')
-
+except Exception as e:
+    st.error(f"Gagal memuat model: {e}")
+    st.stop()
+    
     # Load scaler (jika pakai pickle)
     import pickle
     with open('scaler_X.pkl', 'rb') as f:
