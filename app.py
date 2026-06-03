@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import plotly.graph_objects as go
+import tensorflow as tf
 from plotly.subplots import make_subplots
 from tensorflow.keras.models import load_model
 from datetime import timedelta, datetime
@@ -20,9 +21,6 @@ def load_model_resources():
     Memuat model, scaler, dan history training.
     """
 try:
-import tensorflow as tf
-from tensorflow import keras # Ini akan merujuk ke Keras 2 jika pakai TF 2.15
-
 # Load model
 model = keras.models.load_model('model_lstm_batutegi.keras')
 
