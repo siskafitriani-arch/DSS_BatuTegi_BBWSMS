@@ -4,11 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
 import joblib
+import json
 from datetime import timedelta
 from tensorflow.keras.models import load_model
-import os
-import io
-import json
 
 st.set_page_config(page_title="DSS Bendungan Batutegi", layout="wide")
 
@@ -21,24 +19,15 @@ SCALER_Y_FILE = "scaler_y.pkl"
 DATASET_FILE = "dataset_lstm_batutegi_ready.xlsx"
 VALIDASI_FILE = "hasil_prediksi_lstm.xlsx"
 METRICS_FILE = "metrics_lstm.xlsx"
-HISTORY_FILE = "history_loss.csv"
+HISTORY_FILE = "history_training.json"
 
 # ======================
 # LOAD MODEL & SCALERS
 # ======================
-def load_model_resources(model_file=MODEL_FILE, scaler_x_file=SCALER_X_FILE, scaler_y_file=SCALER_Y_FILE):
-    try:
-        model = load_model(model_file)
-    except Exception as e:
-        raise FileNotFoundError(f"Gagal memuat model: {e}")
-    try:
-        scaler_X = joblib.load(scaler_x_file)
-    except Exception as e:
-        raise FileNotFoundError(f"Gagal memuat scaler X: {e}")
-    try:
-        scaler_y = joblib.load(scaler_y_file)
-    except Exception as e:
-        raise FileNotFoundError(f"Gagal memuat scaler Y: {e}")
+def load_model_resources():
+    model = load_model(MODEL_FILE)
+    scaler_X = joblib.load(SCALER_X_FILE)
+    scaler_y = joblib.load(SCALER_Y_FILE)
     return model, scaler_X, scaler_y
 
 model, scaler_X, scaler_y = load_model_resources()
@@ -63,11 +52,13 @@ def load_dataset():
         metrics = pd.DataFrame()
 
     try:
-        history = pd.read_csv(HISTORY_FILE)
+        with open(HISTORY_FILE, "r") as f:
+            history = json.load(f)
+        history_df = pd.DataFrame(history)
     except:
-        history = None
+        history_df = None
 
-    return hist, validasi, metrics, history
+    return hist, validasi, metrics, history_df
 
 hist_df, validasi_df, metrics_df, history_df = load_dataset()
 
@@ -102,14 +93,12 @@ def kategori_risiko(nilai):
     else:
         return "Rendah"
 
-# Parameter operasional default (dari versi sebelumnya)
 LUAS_DAERAH_TANGKAPAN_KM2 = 50
 KOEFISIEN_ALIRAN_MASUK = 0.3
 DEBIT_IRIGASI_RATA_RATA_M3_HARI = 5000
 DEBIT_EVAPORASI_M3_HARI = 1000
 
 def dss_irigasi_dan_pemeliharaan(prediksi):
-    # Hasil neraca air sederhana
     inflow = prediksi
     volume = inflow * KOEFISIEN_ALIRAN_MASUK * LUAS_DAERAH_TANGKAPAN_KM2
     kapasitas = min(volume / DEBIT_IRIGASI_RATA_RATA_M3_HARI * 100, 100)
@@ -180,6 +169,22 @@ if menu=="Overview":
 elif menu=="Validasi Model":
     st.title("Validasi Model LSTM")
     st.dataframe(validasi_df,use_container_width=True)
+    
+    # Grafik Loss Training
+    if history_df is not None:
+        st.subheader("Grafik Loss Training")
+        fig_loss, ax_loss = plt.subplots(figsize=(10,5))
+        ax_loss.plot(history_df['loss'], label='Training Loss')
+        if 'val_loss' in history_df.columns:
+            ax_loss.plot(history_df['val_loss'], label='Validation Loss')
+        ax_loss.set_title("Loss Training LSTM")
+        ax_loss.set_xlabel("Epoch")
+        ax_loss.set_ylabel("Loss")
+        ax_loss.grid(True)
+        ax_loss.legend()
+        st.pyplot(fig_loss)
+
+    # Grafik Aktual vs Prediksi
     fig, ax = plt.subplots(figsize=(12,6))
     ax.plot(validasi_df['aktual'], label='Data Aktual')
     ax.plot(validasi_df['prediksi'], label='Hasil Prediksi')
