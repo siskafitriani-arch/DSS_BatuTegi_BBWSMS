@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import joblib
 import json
-import os
 import io
+import os
 from datetime import timedelta
 from tensorflow.keras.models import load_model
 
@@ -68,11 +68,11 @@ hist_df, validasi_df, metrics_df, history_df = load_dataset()
 # FEATURE COLUMNS
 # ======================
 feature_cols = [
-    "rainfall_1","rainfall_2",
-    "rainfall_1_lag_1","rainfall_1_lag_2","rainfall_1_lag_3",
-    "rainfall_1_lag_4","rainfall_1_lag_5","rainfall_1_lag_6","rainfall_1_lag_7",
-    "rainfall_2_lag_1","rainfall_2_lag_2","rainfall_2_lag_3",
-    "rainfall_2_lag_4","rainfall_2_lag_5","rainfall_2_lag_6","rainfall_2_lag_7",
+    "pos_hujan_1","pos_hujan_2",
+    "pos_hujan_1_lag_1","pos_hujan_1_lag_2","pos_hujan_1_lag_3",
+    "pos_hujan_1_lag_4","pos_hujan_1_lag_5","pos_hujan_1_lag_6","pos_hujan_1_lag_7",
+    "pos_hujan_2_lag_1","pos_hujan_2_lag_2","pos_hujan_2_lag_3",
+    "pos_hujan_2_lag_4","pos_hujan_2_lag_5","pos_hujan_2_lag_6","pos_hujan_2_lag_7",
     "bulan","time_index"
 ]
 
@@ -95,6 +95,7 @@ def kategori_risiko(nilai):
     else:
         return "Rendah"
 
+# Parameter operasional
 LUAS_DAERAH_TANGKAPAN_KM2 = 50
 KOEFISIEN_ALIRAN_MASUK = 0.3
 DEBIT_IRIGASI_RATA_RATA_M3_HARI = 5000
@@ -115,29 +116,29 @@ def dss_irigasi_dan_pemeliharaan(prediksi):
 # ======================
 # PREDIKSI 15 HARI
 # ======================
-def prediksi_15_hari_lstm(tanggal_awal,rainfall_1_input,rainfall_2_input):
+def prediksi_15_hari_lstm(tanggal_awal,pos_hujan_1_input,pos_hujan_2_input):
     tanggal_awal = pd.to_datetime(tanggal_awal)
     data_sebelum = hist_df[hist_df["tanggal"] <= tanggal_awal].copy()
     base_df = data_sebelum.tail(7) if len(data_sebelum)>=7 else hist_df.tail(7)
-    r1_series = list(base_df["rainfall_1"].values)+[rainfall_1_input]
-    r2_series = list(base_df["rainfall_2"].values)+[rainfall_2_input]
+    r1_series = list(base_df["pos_hujan_1"].values)+[pos_hujan_1_input]
+    r2_series = list(base_df["pos_hujan_2"].values)+[pos_hujan_2_input]
     current_time_index = int(base_df["time_index"].iloc[-1])
     hasil=[]
     for i in range(1,16):
         tanggal_pred = tanggal_awal + pd.Timedelta(days=i)
-        row_input={"rainfall_1":r1_series[-1],"rainfall_2":r2_series[-1],
+        row_input={"pos_hujan_1":r1_series[-1],"pos_hujan_2":r2_series[-1],
                    "bulan":tanggal_pred.month,"time_index":current_time_index}
         for lag in range(1,8):
-            row_input[f"rainfall_1_lag_{lag}"] = r1_series[-lag]
-            row_input[f"rainfall_2_lag_{lag}"] = r2_series[-lag]
+            row_input[f"pos_hujan_1_lag_{lag}"] = r1_series[-lag]
+            row_input[f"pos_hujan_2_lag_{lag}"] = r2_series[-lag]
         X_input = pd.DataFrame([row_input])[feature_cols].values
         X_scaled = scaler_X.transform(X_input).reshape((1,1,len(feature_cols)))
         pred_scaled = model.predict(X_scaled, verbose=0)
         pred = max(float(scaler_y.inverse_transform(pred_scaled)[0][0]),0)
         kategori = kategori_risiko(pred)
         volume, kapasitas, status = dss_irigasi_dan_pemeliharaan(pred)
-        hasil.append({"tanggal_prediksi":tanggal_pred,"hari_ke":f"H+{i}",
-                      "PH.R067_input":rainfall_1_input,"R.284_input":rainfall_2_input,
+        hasil.append({"tanggal_prediksi":tanggal_pred.strftime("%Y-%m-%d"),
+                      "PH.R067_input":pos_hujan_1_input,"R.284_input":pos_hujan_2_input,
                       "prediksi_hujan_lstm":pred,"kategori_risiko":kategori,
                       "volume_m3":volume,"kapasitas_persen":kapasitas,"status_operasi":status})
         r1_series.append(pred)
@@ -151,10 +152,10 @@ def prediksi_15_hari_lstm(tanggal_awal,rainfall_1_input,rainfall_2_input):
 st.sidebar.title("DSS Bendungan Batutegi")
 menu = st.sidebar.radio("Menu", ["Overview","Validasi Model","Prediksi Interaktif","Rekomendasi DSS","Data"])
 
-rainfall_1_input = st.sidebar.number_input("PH.R067", value=float(hist_df["rainfall_1"].iloc[-1]))
-rainfall_2_input = st.sidebar.number_input("R.284", value=float(hist_df["rainfall_2"].iloc[-1]))
+pos_hujan_1_input = st.sidebar.number_input("PH.R067", value=float(hist_df["pos_hujan_1"].iloc[-1]))
+pos_hujan_2_input = st.sidebar.number_input("R.284", value=float(hist_df["pos_hujan_2"].iloc[-1]))
 tanggal_input = st.sidebar.date_input("Tanggal awal prediksi", value=hist_df["tanggal"].max())
-pred15_df = prediksi_15_hari_lstm(tanggal_input,rainfall_1_input,rainfall_2_input)
+pred15_df = prediksi_15_hari_lstm(tanggal_input,pos_hujan_1_input,pos_hujan_2_input)
 max_pred = pred15_df["prediksi_hujan_lstm"].max()
 status = kategori_risiko(max_pred)
 
@@ -165,7 +166,7 @@ if menu=="Overview":
     st.title("Overview DSS Batutegi")
     st.metric("Prediksi Maks 15 Hari",f"{max_pred:.2f} mm")
     st.metric("Status DSS", status)
-    fig = px.line(pred15_df,x="hari_ke",y="prediksi_hujan_lstm",markers=True,title="Prediksi Curah Hujan 15 Hari")
+    fig = px.line(pred15_df,x="tanggal_prediksi",y="prediksi_hujan_lstm",markers=True,title="Prediksi Curah Hujan 15 Hari")
     st.plotly_chart(fig,use_container_width=True)
 
 elif menu=="Validasi Model":
@@ -200,7 +201,7 @@ elif menu=="Validasi Model":
 elif menu=="Prediksi Interaktif":
     st.title("Prediksi Interaktif")
     st.dataframe(pred15_df,use_container_width=True)
-    fig = px.bar(pred15_df,x="hari_ke",y="prediksi_hujan_lstm",
+    fig = px.bar(pred15_df,x="tanggal_prediksi",y="prediksi_hujan_lstm",
                  color="kategori_risiko",text="prediksi_hujan_lstm",
                  title="Prediksi Curah Hujan 15 Hari")
     st.plotly_chart(fig,use_container_width=True)
@@ -209,11 +210,11 @@ elif menu=="Rekomendasi DSS":
     st.title("Rekomendasi DSS")
     for _, row in pred15_df.iterrows():
         if row["kategori_risiko"]=="Tinggi":
-            st.error(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
+            st.error(f"{row['tanggal_prediksi']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
         elif row["kategori_risiko"]=="Sedang":
-            st.warning(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
+            st.warning(f"{row['tanggal_prediksi']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
         else:
-            st.success(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
+            st.success(f"{row['tanggal_prediksi']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
 
 elif menu=="Data":
     st.title("Data Dashboard")
