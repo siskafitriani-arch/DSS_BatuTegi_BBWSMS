@@ -102,13 +102,24 @@ def kategori_risiko(nilai):
     else:
         return "Rendah"
 
-def rekomendasi_dss(kategori):
-    if kategori=="Tinggi":
-        return "SIAGA - Monitoring intensif inflow dan kesiapsiagaan operasional."
-    elif kategori=="Sedang":
-        return "WASPADA - Pantau kondisi DAS dan potensi kenaikan inflow."
+# Parameter operasional default (dari versi sebelumnya)
+LUAS_DAERAH_TANGKAPAN_KM2 = 50
+KOEFISIEN_ALIRAN_MASUK = 0.3
+DEBIT_IRIGASI_RATA_RATA_M3_HARI = 5000
+DEBIT_EVAPORASI_M3_HARI = 1000
+
+def dss_irigasi_dan_pemeliharaan(prediksi):
+    # Hasil neraca air sederhana
+    inflow = prediksi
+    volume = inflow * KOEFISIEN_ALIRAN_MASUK * LUAS_DAERAH_TANGKAPAN_KM2
+    kapasitas = min(volume / DEBIT_IRIGASI_RATA_RATA_M3_HARI * 100, 100)
+    if kapasitas >= 60:
+        status = "SIAGA"
+    elif kapasitas >=30:
+        status = "WASPADA"
     else:
-        return "NORMAL - Operasi normal dan pemantauan rutin."
+        status = "NORMAL"
+    return volume, kapasitas, status
 
 # ======================
 # PREDIKSI 15 HARI
@@ -133,10 +144,11 @@ def prediksi_15_hari_lstm(tanggal_awal,rainfall_1_input,rainfall_2_input):
         pred_scaled = model.predict(X_scaled, verbose=0)
         pred = max(float(scaler_y.inverse_transform(pred_scaled)[0][0]),0)
         kategori = kategori_risiko(pred)
+        volume, kapasitas, status = dss_irigasi_dan_pemeliharaan(pred)
         hasil.append({"tanggal_prediksi":tanggal_pred,"hari_ke":f"H+{i}",
-                      "rainfall_1_input":rainfall_1_input,"rainfall_2_input":rainfall_2_input,
+                      "PH.R067_input":rainfall_1_input,"R.284_input":rainfall_2_input,
                       "prediksi_hujan_lstm":pred,"kategori_risiko":kategori,
-                      "rekomendasi":rekomendasi_dss(kategori)})
+                      "volume_m3":volume,"kapasitas_persen":kapasitas,"status_operasi":status})
         r1_series.append(pred)
         r2_series.append(r2_series[-1])
         current_time_index +=1
@@ -147,8 +159,9 @@ def prediksi_15_hari_lstm(tanggal_awal,rainfall_1_input,rainfall_2_input):
 # ======================
 st.sidebar.title("DSS Bendungan Batutegi")
 menu = st.sidebar.radio("Menu", ["Overview","Validasi Model","Prediksi Interaktif","Rekomendasi DSS","Data"])
-rainfall_1_input = st.sidebar.number_input("Curah Hujan Pos 1", value=float(hist_df["rainfall_1"].iloc[-1]))
-rainfall_2_input = st.sidebar.number_input("Curah Hujan Pos 2", value=float(hist_df["rainfall_2"].iloc[-1]))
+
+rainfall_1_input = st.sidebar.number_input("PH.R067", value=float(hist_df["rainfall_1"].iloc[-1]))
+rainfall_2_input = st.sidebar.number_input("R.284", value=float(hist_df["rainfall_2"].iloc[-1]))
 tanggal_input = st.sidebar.date_input("Tanggal awal prediksi", value=hist_df["tanggal"].max())
 pred15_df = prediksi_15_hari_lstm(tanggal_input,rainfall_1_input,rainfall_2_input)
 max_pred = pred15_df["prediksi_hujan_lstm"].max()
@@ -167,7 +180,6 @@ if menu=="Overview":
 elif menu=="Validasi Model":
     st.title("Validasi Model LSTM")
     st.dataframe(validasi_df,use_container_width=True)
-    # Grafik Aktual vs Prediksi
     fig, ax = plt.subplots(figsize=(12,6))
     ax.plot(validasi_df['aktual'], label='Data Aktual')
     ax.plot(validasi_df['prediksi'], label='Hasil Prediksi')
@@ -177,28 +189,6 @@ elif menu=="Validasi Model":
     ax.legend()
     ax.grid(True)
     st.pyplot(fig)
-    # Grafik 100 data pertama
-    fig2, ax2 = plt.subplots(figsize=(12,6))
-    ax2.plot(validasi_df['aktual'][:100], label='Data Aktual')
-    ax2.plot(validasi_df['prediksi'][:100], label='Hasil Prediksi')
-    ax2.set_title("Grafik Aktual vs Prediksi (100 Data Pertama)")
-    ax2.set_xlabel("Data Uji")
-    ax2.set_ylabel("Curah Hujan (mm)")
-    ax2.legend()
-    ax2.grid(True)
-    st.pyplot(fig2)
-    # Grafik Loss Training jika ada
-    if history_df is not None:
-        fig3, ax3 = plt.subplots(figsize=(10,5))
-        ax3.plot(history_df['loss'], label='Training Loss')
-        if 'val_loss' in history_df.columns:
-            ax3.plot(history_df['val_loss'], label='Validation Loss')
-        ax3.set_title("Grafik Loss Training dan Validation")
-        ax3.set_xlabel("Epoch")
-        ax3.set_ylabel("Loss")
-        ax3.legend()
-        ax3.grid(True)
-        st.pyplot(fig3)
 
 elif menu=="Prediksi Interaktif":
     st.title("Prediksi Interaktif")
@@ -212,11 +202,11 @@ elif menu=="Rekomendasi DSS":
     st.title("Rekomendasi DSS")
     for _, row in pred15_df.iterrows():
         if row["kategori_risiko"]=="Tinggi":
-            st.error(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | {row['rekomendasi']}")
+            st.error(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
         elif row["kategori_risiko"]=="Sedang":
-            st.warning(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | {row['rekomendasi']}")
+            st.warning(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
         else:
-            st.success(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | {row['rekomendasi']}")
+            st.success(f"{row['hari_ke']} | {row['prediksi_hujan_lstm']} mm | Volume: {row['volume_m3']:.0f} m³ | Kapasitas: {row['kapasitas_persen']:.1f}% | Status: {row['status_operasi']}")
 
 elif menu=="Data":
     st.title("Data Dashboard")
